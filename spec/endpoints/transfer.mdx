@@ -20,26 +20,11 @@ icon: "paper-plane"
     "memo": null,
     "originated_at": "2024-01-21T10:00:00Z"
   },
-  "originator": {
-    "originator_type": "natural_person",
-    "name": "{encrypted}",
-    "account_id": "user_12345",
-    "address": "0xOriginator...",
-    "identification": {
-      "type": "national_id",
-      "number": "{encrypted}",
-      "country": "TW"
-    },
-    "date_of_birth": "{encrypted}",
-    "place_of_birth": "{encrypted}",
-    "physical_address": "{encrypted}"
-  },
-  "beneficiary": {
-    "beneficiary_type": "natural_person",
-    "name": "{encrypted}",
-    "address": "0xBeneficiary...",
-    "memo": null,
-    "account_id": null
+  "private_info": {
+    "encrypted_key": "string",
+    "iv": "string",
+    "auth_tag": "string",
+    "ciphertext": "string"
   },
   "originating_vasp": {
     "vasp_id": "VASP_A",
@@ -57,6 +42,57 @@ icon: "paper-plane"
 }
 ```
 
+<Note>
+**關於 `private_info.ciphertext` 解密後內容**
+
+`POST /transfer` 的 `private_info.ciphertext` 解密後為一個 JSON 物件，包含 `Originator` 與 `Beneficiary` 兩個欄位（完整 schema 見 [資料模型](/spec/data-models)）：
+
+```json
+{
+  "originator":  { /* Originator model — 完整欄位見 data-models */ },
+  "beneficiary": { /* Beneficiary model — 完整欄位見 data-models */ }
+}
+```
+
+**Serialization**：plaintext 在送入 AES-256-GCM 前須 **UTF-8 encode 後傳入**（建議使用 RFC 8259 標準 JSON，欄位順序不影響 GCM 加解密，但建議 sender 維持 schema 定義順序便於 debug）。
+</Note>
+
+#### private_info 組成流程
+
+```
+plain_data = {
+  "originator":  Originator object,
+  "beneficiary": Beneficiary object
+}
+plaintext = utf8(JSON.stringify(plain_data))
+
+aes_key = GenerateRandomBytes(32)        // 256-bit AES key, fresh per message
+iv      = GenerateRandomBytes(12)        // 96-bit IV, MUST be unique per aes_key
+
+ciphertext, auth_tag = AES-256-GCM-Encrypt(
+  key: aes_key,
+  iv: iv,
+  plaintext: plaintext
+)
+// auth_tag 固定 16 bytes (128-bit)
+
+encrypted_key = RSA-Encrypt(
+  public_key: receiver_public_key,       // 來自 GET /vasp/info 的 active key，kid 寫進 encryption.kid
+  padding: PKCS1_OAEP_PADDING,
+  hash_algorithm: SHA-256,
+  mgf1_algorithm: SHA-256,
+  message: aes_key
+)
+
+// 所有 bytes 以 base64 編碼後填入 envelope
+private_info = {
+  "encrypted_key": base64(encrypted_key),
+  "iv":            base64(iv),
+  "auth_tag":      base64(auth_tag),
+  "ciphertext":    base64(ciphertext)
+}
+```
+
 ### Request Fields
 
 | 欄位 | 類型 | 必填 | 說明 |
@@ -70,30 +106,15 @@ icon: "paper-plane"
 | transaction.amount_usd | string | N | 等值美元金額 |
 | transaction.memo | string | N | **[v2.0 新增]** Memo / Destination Tag |
 | transaction.originated_at | string | Y | 交易發起時間 |
-| originator | object | Y | 發起人資訊 |
-| originator.originator_type | string | Y | natural_person / legal_person |
-| originator.name | string | Y | 姓名（加密） |
-| originator.account_id | string | Cond. | **[v2.1 變更]** 在發起方 VASP 的帳戶編碼；與 `address` 至少提供其一 |
-| originator.address | string | Cond. | **[v2.1 變更]** 發起人的區塊鏈地址；與 `account_id` 至少提供其一 |
-| originator.identification | object | Y | 身分證明文件 |
-| originator.identification.type | string | Y | **[v2.1 擴充]** national_id / passport / company_registration / lei / tax_id / business_registration |
-| originator.date_of_birth | string | N | **[v2.1 變更]** 出生日期（加密），接受 YYYY / YYYY-MM / YYYY-MM-DD 格式 |
-| originator.place_of_birth | string | N | 出生地（加密） |
-| originator.physical_address | object | N | **[v2.1 變更]** 實體地址（結構化物件，加密後傳送）；金額 ≥ 30,000 TWD 等值時為必填 |
-| originator.physical_address.country | string | Cond. | ISO 3166-1 alpha-2 國家碼 |
-| originator.physical_address.city | string | Cond. | 城鎮名稱 |
-| beneficiary | object | Y | 受益人資訊 |
-| beneficiary.beneficiary_type | string | Y | natural_person / legal_person |
-| beneficiary.name | string | N | 姓名（加密，如發起人提供） |
-| beneficiary.address | string | Cond. | **[v2.1 變更]** 受益人的區塊鏈地址；與 `beneficiary.account_id` 至少提供其一 |
-| beneficiary.memo | string | N | **[v2.0 新增]** 受益人地址對應的 Memo / Destination Tag |
-| beneficiary.physical_address | object | N | **[v2.1 新增]** 受益人實體地址（結構化物件，加密後傳送）；金額 ≥ 30,000 TWD 等值時為必填 |
-| beneficiary.physical_address.country | string | Cond. | ISO 3166-1 alpha-2 國家碼 |
-| beneficiary.physical_address.city | string | Cond. | 城鎮名稱 |
+| private_info | object | Y | **[v2.1 新增]**  敏感資料的加密資訊 |
+| private_info.encrypted_key | string | Y | **[v2.1 新增]**  發起方需用受益方的 RSA 公鑰加密後的 AES Key |
+| private_info.auth_tag | string | Y | **[v2.1 新增]** 資料驗證標籤 |
+| private_info.iv | string | Y | **[v2.1 新增]** 初始向量 |
+| private_info.ciphertext | string | Y | **[v2.1 新增]** AES 加密後的發起人與受益人資訊，內文由 originator 與 beneficiary model 組成 |
 | originating_vasp | object | Y | 發起方 VASP 資訊 |
 | beneficiary_vasp | object | Y | 受益方 VASP 資訊 |
-| encryption | object | N | **[v2.0 新增]** 加密資訊 |
-| encryption.kid | string | N | **[v2.0 新增]** 加密使用的金鑰 ID，對應 public_keys[].kid |
+| encryption | object | Y | **[v2.1.1 變更]** Envelope 加密相關 metadata（v2.1.1 起為必填，因 envelope 解密需依此判斷 RSA private key） |
+| encryption.kid | string | Y | **[v2.1.1 變更]** 用於解開 `private_info.encrypted_key` 的接收方 RSA 公鑰 ID，對應 `GET /vasp/info` 回傳之 `public_keys[].kid`。沿用 v2.0 欄位名稱，但語意改為 envelope key wrap 用 |
 | callback_url | string | N | 狀態更新回呼 URL |
 | expires_at | string | Y | 請求過期時間 |
 
