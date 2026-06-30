@@ -15,11 +15,11 @@ originator:
   "address": "string (blockchain address, at least one of account_id or address required)",
   "memo": "string (Memo/Tag, if applicable)",
   "identification": {
-    "type": "national_id | passport | lei | tax_id | business_registration",
-    "number": "string",
-    "country": "string (ISO 3166-1 alpha-2)"
+    "type": "lei | tax_id | business_registration (法人專用；自然人不帶 type/number)",
+    "number": "string (法人統編 / LEI / 登記字號)",
+    "country": "string (ISO 3166-1 alpha-2；自然人於大額交易帶國籍)"
   },
-  "date_of_birth": "string (YYYY or YYYY-MM or YYYY-MM-DD)",
+  "date_of_birth": "string (YYYY-MM-DD, 完整出生年月日)",
   "place_of_birth": "string",
   "physical_address": {
     "country": "string (ISO 3166-1 alpha-2, e.g. TW)",
@@ -39,11 +39,11 @@ beneficiary:
   "address": "string (blockchain address, at least one of account_id or address required)",
   "memo": "string (Memo/Tag, if applicable)",
   "identification": {
-    "type": "national_id | passport | lei | tax_id | business_registration",
-    "number": "string",
-    "country": "string (ISO 3166-1 alpha-2)"
+    "type": "lei | tax_id | business_registration (法人專用；自然人不帶 type/number)",
+    "number": "string (法人統編 / LEI / 登記字號)",
+    "country": "string (ISO 3166-1 alpha-2；自然人於大額交易帶國籍)"
   },
-  "date_of_birth": "string (YYYY or YYYY-MM or YYYY-MM-DD)",
+  "date_of_birth": "string (YYYY-MM-DD, 完整出生年月日)",
   "place_of_birth": "string",
   "physical_address": {
     "country": "string (ISO 3166-1 alpha-2, e.g. TW)",
@@ -54,10 +54,10 @@ beneficiary:
 
 ### Identification Types
 
+`identification`（type/number）**僅法人適用**，且僅在大額交易（等值 TWD ≥ 30,000）時必填。自然人不帶 `identification.type` / `number`。
+
 | Type | 適用主體 | 說明 | 法人優先順序 |
 |------|---------|------|--------------|
-| national_id | 自然人 | 身分證字號 | - |
-| passport | 自然人 | 護照號碼 | - |
 | lei | 法人 | **[v2.1 新增]** Legal Entity Identifier（法人識別碼） | 1（最優先） |
 | tax_id | 法人 | **[v2.1 新增]** 統一編號 | 2 |
 | business_registration | 法人 | **[v2.1 新增]** 公司登記字號 | 3 |
@@ -67,20 +67,32 @@ beneficiary:
 </Note>
 
 <Warning>
+**[v2.2 第五次技術會議] 移除自然人證件號碼（MaiCoin 提案）**
+
+依證期局提供之反洗錢辦法草案，自然人辨識**未納入**身分證字號及護照號碼，故移除 `identification.type` 的 `national_id`、`passport` 兩種類型。自然人改以業者配發之 **`account_id`（帳戶編碼）** 辨識；大額交易（≥ 30,000 TWD）另帶 `identification.country`（國籍）、`date_of_birth`、`place_of_birth`、`physical_address`，但**不帶 `type` / `number`**。
+
+**`name` 欄位的來源依用戶證件類型認定**：身分證 → 中文姓名；護照 → 羅馬拼音；居留證 → 居留證上之名字。居留證僅作為 `name` 之來源依據，因自然人不交換證件號碼，故**不另設居留證 identification type**。
+</Warning>
+
+<Warning>
 **[v2.1 Breaking Change]** 移除舊有的 `company_registration` 類型。v2.1 起法人登記字號一律使用 `business_registration`。由於 v2.1 規格尚未有任何實作，此變更不需過渡期。
 </Warning>
 
-### date_of_birth 格式 [v2.1 變更]
+### date_of_birth 格式 [v2.2 第五次技術會議變更]
 
-`date_of_birth` 欄位允許以下三種格式（至少須提供年份）：
+`date_of_birth` 須為**完整出生年月日** `YYYY-MM-DD`：
 
 | 格式 | 範例 | 說明 |
 |------|------|------|
-| `YYYY` | `"1990"` | 至少須提供 |
-| `YYYY-MM` | `"1990-05"` | best effort |
-| `YYYY-MM-DD` | `"1990-05-15"` | 完整日期 |
+| `YYYY-MM-DD` | `"1990-05-15"` | **必填格式（完整出生年月日）** |
 
-驗證用正規表達式：`^\d{4}(-\d{2}(-\d{2})?)?$`
+驗證用正規表達式：`^\d{4}-\d{2}-\d{2}$`
+
+<Warning>
+**[v2.2 第五次技術會議] 改為完整出生年月日（MaiCoin 提案）**
+
+依證期局提供之反洗錢辦法草案，僅接受完整出生日期。原 v2.1「至少提供年份」（接受 `YYYY` / `YYYY-MM`）之放寬規則**作廢**，一律須帶 `YYYY-MM-DD`。
+</Warning>
 
 ### physical_address 結構 [v2.1 變更]
 
@@ -92,7 +104,16 @@ beneficiary:
 | city | string | 城鎮名稱 |
 
 <Warning>
-當交易金額等值 ≥ 30,000 TWD 時，`physical_address` 為**必填**欄位；其餘情況為 optional。
+**[v2.2 釐清] 大額交易必填欄位（提案 9）**
+
+依《防制洗錢及打擊資恐注意事項自律規範》第十二條之一，移轉虛擬資產等值新臺幣三萬元以上者，應包含接收人之居住、出生或註冊營業之國家及城鎮名稱。對應欄位為 `physical_address`（v2.1 已加入結構化 `{country, city}`），必填規則如下：
+
+| 交易金額（等值 TWD） | `originator.physical_address` | `beneficiary.physical_address` |
+|------|------|------|
+| ≥ 30,000 | **必填** | **必填** |
+| < 30,000 | optional | optional |
+
+**門檻判斷基準 [v2.2 釐清]**：本門檻以 **`transaction.amount_twd`（等值新台幣）** 為準，由發送方依交易當下匯率認定；不以 `amount_usd` 判斷，避免各家美元匯率不一導致同筆交易門檻結果不一致。
 
 `city` 欄位的標準化用詞（如 `"New Taipei City"` vs `"新北市"`）待確認，將參考 ISO 3166-2:TW 或其他標準。
 </Warning>
@@ -110,6 +131,14 @@ beneficiary:
 <Note>
 **背景**：交易所在處理客戶虛擬資產發送時，可能從水庫地址（omnibus/pool address）發送，而非分配給發起人獨一無二的區塊鏈地址。經公會秘書處與主管機關確認，自律規範允許以帳戶編碼替代區塊鏈地址，因帳戶編碼與用戶為 1:1 對應。此做法亦與國際慣例一致（歐盟 TFR、新加坡 PSN02 皆採 account number or blockchain address）。
 </Note>
+
+<Warning>
+**[v2.2 第五次技術會議] 欄位 key 恆存、空值以空字串表示**
+
+為符合自律規範「須有此資訊」之文字、並保持 schema 形狀穩定與 transaction log 完整，`account_id` 與 `address` 之 **JSON key 一律必須存在**（不省略、不設為 Optional）。若某值依上表情境確實取不到（例：水庫地址無對應 `account_id`、或受益方端發起時尚未取得對方帳戶編碼），**該值以空字串 `""` 表示**；接收方須將空字串視為「未提供」，改抓另一個可用欄位判斷。
+
+> 自律規範對「錢包資訊」之確切定義（`account_id` 與 `address` 是否須兩者皆有值，或可擇一）由法遵與證期局持續釐清；屆時僅調整「value 何時允許為空」，**欄位 key 結構不變**。
+</Warning>
 
 ## Confirm Beneficiary（確認後回傳之受益人資訊）
 
@@ -139,10 +168,13 @@ confirm_beneficiary:
 ```json
 {
   "tx_hash": "string",
-  "network": "string",
-  "asset": "string",
-  "amount": "string (decimal)",
-  "amount_usd": "string (decimal)",
+  "vout": "integer (UTXO output index, UTXO 鏈才需要)",
+  "network": "string (鏈短名別名, e.g. ethereum；過渡期保留)",
+  "chain_id": "string (CAIP-2 chain_id, e.g. eip155:1)",
+  "asset_id": "string (CAIP-19 asset_id, e.g. eip155:1/erc20:0xdac17...)",
+  "amount": "string (decimal, 原幣別數量)",
+  "amount_twd": "string (decimal, 等值新台幣；自律規範門檻判斷依據)",
+  "amount_usd": "string (decimal, 等值美元；純國際參考)",
   "memo": "string (Memo/Tag, if applicable)",
   "block_number": "integer",
   "originated_at": "string (ISO 8601)",
@@ -150,43 +182,105 @@ confirm_beneficiary:
 }
 ```
 
-## 支援的區塊鏈網路
+<Note>
+**[v2.2 新增] `vout` 欄位（提案 13）**
 
-| Network ID | 說明 |
-|------|------|
-| bitcoin | Bitcoin 主網 |
-| ethereum | Ethereum 主網 |
-| tron | Tron 主網 |
-| bsc | BNB Smart Chain |
-| polygon | Polygon |
-| arbitrum | Arbitrum One |
-| optimism | Optimism |
-| solana | Solana |
-| xrp | **[v2.0 新增]** XRP Ledger |
-| stellar | **[v2.0 新增]** Stellar |
-| cosmos | **[v2.0 新增]** Cosmos Hub |
-| eos | **[v2.0 新增]** EOS |
+`vout` 為 UTXO output index。BTC 等 UTXO 鏈一筆交易可能含多個 output，僅 `tx_hash` 不足以定位受益人收到的 output，故新增此欄位。僅在 CAIP-2 `chain_id` 對應 UTXO 鏈（如 Bitcoin `bip122:000000000019d6689c085ae165831e93`）時提供；非 UTXO 鏈可省略或為 `null`。
+</Note>
 
-## 支援的資產類型
+## 支援的區塊鏈網路 [v2.2：改採 CAIP-2]
 
-| Asset | Network | 說明 |
+<Note>
+**[v2.2 變更] 鏈識別改採 CAIP-2 標準（PR #7 Code Review 提議）**
+
+鏈以 [CAIP-2](https://chainagnostic.org/CAIPs/caip-2) `chain_id`（格式 `namespace:reference`）為**正規識別碼**，填入 API payload 的 `chain_id`。短名 `network` 過渡期保留為別名，完整切換 CAIP-only 規劃於 v2.3。
+</Note>
+
+| 通用名稱 | `network` 短名（過渡期別名） | `chain_id`（CAIP-2，正規） | 狀態 |
+|------|------|------|------|
+| Bitcoin | bitcoin | `bip122:000000000019d6689c085ae165831e93` | 正式 |
+| Ethereum | ethereum | `eip155:1` | 正式 |
+| BNB Smart Chain | bsc | `eip155:56` | 正式 |
+| Polygon | polygon | `eip155:137` | 正式 |
+| Arbitrum One | arbitrum | `eip155:42161` | 正式 |
+| Optimism | optimism | `eip155:10` | 正式 |
+| Avalanche C-Chain | avalanche_c_chain | `eip155:43114` | 正式 |
+| Ethereum Classic | etc | `eip155:61` | 正式 |
+| Litecoin | litecoin | `bip122:12a765e31ffd4059bada1e25190f6e98` | 正式 |
+| Bitcoin Cash | bitcoincash | `bip122:000000000000000000651ef99cb9fcbe` | 正式（註：CAIP 採分叉後區塊雜湊以區別 BTC，非 genesis） |
+| Dogecoin | doge | `bip122:1a91e3dace36e2be3bf030a65679fe82` | 正式 |
+| Solana | solana | `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp` | 正式 |
+| XRP Ledger | xrp | `xrpl:0` | 正式 |
+| Stellar | stellar | `stellar:pubnet` | 正式 |
+| Cosmos Hub | cosmos | `cosmos:cosmoshub-4` | 正式 |
+| EOS | eos | `antelope:aca376f206b8fc25a6ed44dbdc66547c` | 正式（namespace 為 `antelope`） |
+| Polkadot | polkadot | `polkadot:91b171bb158e2d3848fa23a9f1c25182` | 正式 |
+| Tezos | tezos | `tezos:NetXdQprcVkpaWU` | 正式 |
+| Cardano | cardano | `cip34:1-764824073` | **待核對**（network-magic 待 hitripod 確認） |
+| Tron | tron | `tron:mainnet` | 正式 |
+
+## 支援的資產類型 [v2.2：改採 CAIP-19]
+
+<Note>
+**[v2.2 變更] 資產識別改採 CAIP-19 標準**
+
+資產以 [CAIP-19](https://chainagnostic.org/CAIPs/caip-19) `asset_id` 為**正規識別碼**（填入 API payload 的 `asset_id`）。**凡可由 CAIP-19 表示、且位於上述支援 CAIP-2 鏈上的資產皆受支援，不再逐欄列舉。** 下表僅列常見資產的標準範例。
+
+**wrapped / bridged 資產**：同一 symbol 於非原生鏈上多為 wrapped／bridged 代幣（如 BTC on `bsc` 實為 BTCB）。CAIP-19 `asset_id` 已內含合約地址，能精確區分，請以 `asset_id` 為準。
+</Note>
+
+**原生幣（CAIP-19 `slip44`）**
+
+| symbol | 鏈 | `asset_id`（CAIP-19） |
 |------|------|------|
-| BTC | bitcoin | Bitcoin |
-| ETH | ethereum | Ethereum |
-| USDT | ethereum, tron, bsc | Tether USD |
-| USDC | ethereum, polygon | USD Coin |
-| XRP | xrp | **[v2.0 新增]** XRP |
+| BTC | Bitcoin | `bip122:000000000019d6689c085ae165831e93/slip44:0` |
+| ETH | Ethereum | `eip155:1/slip44:60` |
+| LTC | Litecoin | `bip122:12a765e31ffd4059bada1e25190f6e98/slip44:2` |
+| BCH | Bitcoin Cash | `bip122:000000000000000000651ef99cb9fcbe/slip44:145` |
+| DOGE | Dogecoin | `bip122:1a91e3dace36e2be3bf030a65679fe82/slip44:3` |
+| ETC | Ethereum Classic | `eip155:61/slip44:61` |
+| AVAX | Avalanche C-Chain | `eip155:43114/slip44:9000` |
+| BNB | BNB Smart Chain | `eip155:56/slip44:714` |
+| DOT | Polkadot | `polkadot:91b171bb158e2d3848fa23a9f1c25182/slip44:354` |
+| XLM | Stellar | `stellar:pubnet/slip44:148` |
+| XTZ | Tezos | `tezos:NetXdQprcVkpaWU/slip44:1729` |
+| ADA | Cardano | `cip34:1-764824073/slip44:1815`（鏈 ID 待核對） |
+| SOL | Solana | `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp/slip44:501`（Solana namespace 未定義原生幣表示法，待核對） |
+| TRX | Tron | `tron:mainnet/token:trx` |
+
+**代幣（CAIP-19 `erc20`，Ethereum mainnet 範例）**
+
+| symbol | `asset_id`（CAIP-19） |
+|------|------|
+| USDT | `eip155:1/erc20:0xdac17f958d2ee523a2206206994597c13d831ec7` |
+| USDC | `eip155:1/erc20:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48` |
+| DAI | `eip155:1/erc20:0x6b175474e89094c44da98b954eedeac495271d0f` |
+| LINK | `eip155:1/erc20:0x514910771af9ca656af840dff83e8264ecf986ca` |
+| UNI | `eip155:1/erc20:0x1f9840a85d5af5bf1d1762f925bdaddc4201f984` |
+| AAVE | `eip155:1/erc20:0x7fc66500c84a76ad7e9c93437bfc5ac33e2ddae9` |
+| PAXG | `eip155:1/erc20:0x45804880de22913dafe09f4980848ece6ecbaf78` |
+| MAX | `eip155:1/erc20:0xe7976c4efc60d9f4c200cc1bcef1a1e3b02c73e7` |
+
+**TRON 資產表示法**：TRX 與 TRC-10 token 使用 `tron:mainnet/token:<Asset_ID_or_Ticker>`；TRC-20 token 使用 `tron:mainnet/erc20:<Smart_Contract_Address>`。
+
+**多鏈穩定幣範例**
+
+| symbol | 鏈 | `asset_id`（CAIP-19） |
+|------|------|------|
+| USDC | Polygon（native） | `eip155:137/erc20:0x3c499c542cef5e3811e1192ce70d8cc03d5c3359` |
+| USDC | Solana | `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp/token:EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` |
+| USDT | Tron（TRC-20） | `tron:mainnet/erc20:TR7NHqjeKQxGTCi8qWoZY4pL6MuXjN6eiZ` |
 
 ## 需要 Memo/Tag 的網路 [v2.0 新增]
 
 以下網路在進行地址查詢與交易時，可能需要同時提供 Memo 或 Destination Tag：
 
-| Network | Memo 欄位名稱 | 說明 |
+| `chain_id`（CAIP-2） | Memo 欄位名稱 | 說明 |
 |------|------|------|
-| xrp | Destination Tag | 數字型態，用於區分同一地址下的不同用戶 |
-| stellar | Memo | 文字或數字型態 |
-| cosmos | Memo | 文字型態 |
-| eos | Memo | 文字型態 |
+| `xrpl:0` | Destination Tag | 數字型態，用於區分同一地址下的不同用戶 |
+| `stellar:pubnet` | Memo | 文字或數字型態 |
+| `cosmos:cosmoshub-4` | Memo | 文字型態 |
+| `antelope:aca376f206b8fc25a6ed44dbdc66547c` | Memo | 文字型態 |
 
 <Warning>
 發起方 VASP 在查詢地址及發送 Transfer 時，若目標網路屬於上述類型，**必須**提供對應的 memo 欄位。

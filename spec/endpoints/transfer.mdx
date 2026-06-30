@@ -10,12 +10,14 @@ icon: "paper-plane"
 
 ```json
 {
-  "transfer_id": "tr_20240121_001",
+  "transfer_id": "550e8400-e29b-41d4-a716-446655440000",
   "transaction": {
     "tx_hash": null,
     "network": "ethereum",
-    "asset": "ETH",
+    "chain_id": "eip155:1",
+    "asset_id": "eip155:1/slip44:60",
     "amount": "1.5",
+    "amount_twd": "105000.00",
     "amount_usd": "3500.00",
     "memo": null,
     "originated_at": "2024-01-21T10:00:00Z"
@@ -37,7 +39,6 @@ icon: "paper-plane"
   "encryption": {
     "kid": "key-2024-001"
   },
-  "callback_url": "https://api.vasp-a.com/travel-rule/v1/callback",
   "expires_at": "2024-01-21T10:30:00Z"
 }
 ```
@@ -97,13 +98,15 @@ private_info = {
 
 | 欄位 | 類型 | 必填 | 說明 |
 |------|------|------|------|
-| transfer_id | string | Y | 唯一交易識別碼 |
+| transfer_id | string | Y | 唯一交易識別碼（**[v2.2]** 由發起方 VASP 自訂，長度上限 36 字元，見下方命名規則） |
 | transaction | object | Y | 交易資訊 |
 | transaction.tx_hash | string | N | 鏈上交易 hash（可後補） |
-| transaction.network | string | Y | 區塊鏈網路 |
-| transaction.asset | string | Y | 資產類型 |
-| transaction.amount | string | Y | 轉帳金額 |
-| transaction.amount_usd | string | N | 等值美元金額 |
+| transaction.network | string | N | 區塊鏈網路短名別名（如 `ethereum`）；過渡期保留，完整切換 CAIP-only 規劃於 v2.3 |
+| transaction.chain_id | string | Y | CAIP-2 chain_id（如 `eip155:1`），鏈的正規識別碼，見[資料模型](/spec/data-models) |
+| transaction.asset_id | string | Y | CAIP-19 asset_id（如 `eip155:1/erc20:0x...`），資產的正規識別碼，可精確區分 wrapped/bridged |
+| transaction.amount | string | Y | 轉帳金額（原幣別數量） |
+| transaction.amount_twd | string | Y | **[v2.2 新增]** 等值新台幣金額。**作為自律規範門檻判斷依據**（如大額交易 ≥ 30,000 TWD），以發送方依交易當下匯率認定為準 |
+| transaction.amount_usd | string | N | 等值美元金額（純國際對齊參考，不作為法規門檻判斷依據） |
 | transaction.memo | string | N | **[v2.0 新增]** Memo / Destination Tag |
 | transaction.originated_at | string | Y | 交易發起時間 |
 | private_info | object | Y | **[v2.1 新增]**  敏感資料的加密資訊 |
@@ -115,14 +118,105 @@ private_info = {
 | beneficiary_vasp | object | Y | 受益方 VASP 資訊 |
 | encryption | object | Y | **[v2.1.1 變更]** Envelope 加密相關 metadata（v2.1.1 起為必填，因 envelope 解密需依此判斷 RSA private key） |
 | encryption.kid | string | Y | **[v2.1.1 變更]** 用於解開 `private_info.encrypted_key` 的接收方 RSA 公鑰 ID，對應 `GET /vasp/info` 回傳之 `public_keys[].kid`。沿用 v2.0 欄位名稱，但語意改為 envelope key wrap 用 |
-| callback_url | string | N | 狀態更新回呼 URL |
-| expires_at | string | Y | 請求過期時間 |
+| expires_at | string | Y | 請求過期時間（受益方 confirm 回覆期限，見下方生命週期說明） |
+
+<Note>
+**[v2.2 移除] `callback_url` 欄位**
+
+原 `callback_url` 已移除。受益方 VASP 回傳確認結果係直接呼叫**發起方** VASP 的 [`POST /transfers/{id}/confirm`](/spec/endpoints/transfer-confirm)（後續鏈上資訊走 `PATCH /transfers/{id}`），不需另設回呼 URL。發起方端點由受益方**以請求 Header 的 `X-VASP-ID` 從公會維護的 VASP 清單反查 base URL** 取得，端點路徑為標準的 `/transfers/{id}/confirm`，故 `callback_url` 屬冗餘欄位。
+</Note>
+
+## transfer_id 命名規則 [v2.2 變更]
+
+<Note>
+**第四次技術會議決議（提案 7）**
+
+`transfer_id` 由**發起方 VASP 自行定義**，不再強制採用固定 prefix 或日期流水號格式（流水號在跨 VASP 並發時易碰撞）。
+
+- **長度上限 36 字元**（與 UUID 等長）
+- 在發起方 VASP 範圍內唯一即可；因 API 請求 Header 已帶 `X-VASP-ID`，故 `(X-VASP-ID, transfer_id)` 組合即為全域唯一
+- **建議**採用 UUID 或 ULID 等隨機識別碼（不可預測、含時間序）；範例：`550e8400-e29b-41d4-a716-446655440000`（UUID）或 `01HV5K8XYZP3QRT4ABCD1234EF`（ULID）
+</Note>
+
+## expires_at 生命週期 [v2.2 新增]
+
+<Note>
+**第四次技術會議決議（提案 10、11）**
+
+**適用範圍**（`expires_at` 具效力）：
+- `POST /transfer` 接收當下的檢查點——若收到時已過期，受益方可拒絕該請求（回 `INVALID_REQUEST`）
+- 受益方 **confirm 回覆期限**——受益方須於 `expires_at` 前回覆 `accepted` / `rejected`
+
+**不適用範圍**（`expires_at` 不再具效力）：
+- transfer 已進入 `accepted` 後的 `PATCH /transfers/{id}`（以鏈上交易為準）
+- 鏈上交易已廣播後的資料補正
+
+**過期處理**：
+- 當 `expires_at` 已過且狀態仍為 `pending`，受益方**可主動**將該筆紀錄標記為 `expired` 並終結流程
+- 一旦狀態已為 `accepted`，受益方**不得**單方面將其 expire
+- **廣播優先原則**：只要發起方在 `expires_at` 前已執行鏈上簽名廣播，即便受益方收到 `PATCH` 更新時已過期，仍應視為有效入帳（鏈上為最終真實狀態）
+
+**過期時間長度（confirm 回覆期限）**：
+- 規格**預設 24 小時**
+- 允許發起方於 `expires_at` 自訂，但有效範圍為 **1～72 小時**
+- 超過 72 小時，接收方可拒收並回 `INVALID_REQUEST`
+</Note>
+
+## 鏈上廣播與 TR 資料時序：接收方判斷規則 [v2.2 新增]
+
+<Note>
+**第四次技術會議後續討論（ZONE Wallet、MaiCoin 於 Slack 提出）**
+
+規格承認兩種合法時序，發起方可擇一：
+
+1. **confirm-first**（先確認後廣播）：先完成 TR data exchange／`confirm`，收到 `accepted` 後再進行鏈上廣播。
+2. **broadcast-first**（先廣播後補）：先鏈上廣播，後續再補送或完成 TR data（呼應上方「廣播優先原則」）。
+
+**接收方判斷規則（broadcast-first 時的最小共識）**：
+
+- 當受益方在鏈上偵測到一筆 inbound deposit，但**尚無對應 `transfer_id` 的 TR data** 時，應主動保留一段 **grace window**，等待對應 TR 資料補達，**期間不得僅因「TR 尚未到」即放行或退回該筆入帳**。
+- **grace window 建議值＝該筆 transfer 的 `expires_at`**；若受益方尚未收到任何對應請求、無從得知 `expires_at`，則採**預設 24 小時**。
+- grace window 內補達的 TR 資料一律以 `transfer_id` 判重（過過既有確認、未收到則當新資料）。
+- grace window 逾時仍無對應 TR 資料者，後續處理（暫扣、要求補正、調整風險等級等）由各家依內控自律規範自行設計。
+
+<Warning>
+**補件「機制」由各家依自律規範內控實作，規格不新增獨立的 supplement 端點。** broadcast-first 補件可重用 `POST /transfer`（以 `transfer_id` 判重），rejected 後的 PII 補正走 [`POST /transfers/{id}/amend`](/spec/endpoints/transfer-amend)。`POST /address/verify` 與 `POST /transfer` 的 timeout／無回應處理見[提案 5：廣播查詢例外情境](/spec/endpoints/address-verify)。
+</Warning>
+</Note>
+
+## 確認逾時的鏈上放行條件（發送方）[v2.2 第五次技術會議]
+
+<Note>
+**第五次技術會議決議（4-1）**
+
+因證期局現行立場為**不接受資料補件機制**，境內 VASP 間轉帳原則上須待受益方回覆 `accepted`（完成 `confirm`，即流程第 10 步）後，發送方才得執行鏈上轉帳。針對受益方逾時未回之例外，放行條件如下。
+
+**得執行鏈上轉帳的情形：**
+
+1. 受益方已明確回覆 `accepted`（正常情形）。
+2. 受益方在發送方自訂的等待時間內未回覆 `confirm`（對方 server 故障／overload／未主動發送等），但發送方能以**可辨識方式**獨立確認下列兩者，並**留存佐證紀錄**：
+   - (a) 受益方 VASP 之身分（確為某境內同業）；且
+   - (b) 該受益鏈上地址之歸屬。
+
+   可辨識方式例如：鏈上地址分析工具、過去與該地址往來之交易紀錄、或使用者提供且經查核之資訊。
+
+**不得執行鏈上轉帳的情形：**
+
+- 受益方回覆 `rejected`。
+- 受益方逾時未回，且發送方**無法**辨識該地址所屬之 VASP 與名稱對應關係（即無法滿足上述 (a)(b)）。
+</Note>
+
+<Warning>
+**等待時間（timeout）長度由各家依內控風險原則自訂**，規格不強制；惟同 `POST /address/verify`，**不得將「timeout 即放行」當作免辨識的捷徑**——逾時放行仍以「可獨立辨識對手方 VASP 身分與地址歸屬並留存紀錄」為前提。
+
+本條為對上方「廣播優先原則」於**境內無補件機制**情境下的收斂：broadcast 仍可先於 `confirm`，但發送方在缺少 `accepted` 時放行上鏈，須自負「可辨識受益方 VASP 身分與地址歸屬」之舉證與留存責任。
+</Warning>
 
 ## Response
 
 ```json
 {
-  "transfer_id": "tr_20240121_001",
+  "transfer_id": "550e8400-e29b-41d4-a716-446655440000",
   "status": "pending",
   "received_at": "2024-01-21T10:00:05Z",
   "message": "Transfer request received, pending verification"

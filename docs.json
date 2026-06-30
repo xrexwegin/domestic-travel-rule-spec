@@ -29,6 +29,7 @@
               "spec/endpoints/transfer-confirm",
               "spec/endpoints/transfer-status",
               "spec/endpoints/transfer-update",
+              "spec/endpoints/transfer-amend",
               "spec/endpoints/health"
             ]
           },
@@ -43,6 +44,10 @@
           {
             "group": "流程與範例",
             "pages": ["spec/flow-examples"]
+          },
+          {
+            "group": "點對點測試",
+            "pages": ["spec/testing"]
           },
           {
             "group": "附錄",
